@@ -372,32 +372,46 @@ input[type=range]{width:100%;accent-color:var(--red);cursor:pointer;}
       <div class="sc">
         <div class="sc-head"><div class="sc-title">🏡 Property Acquisition</div></div>
         <div class="sc-body">
-          <div class="field">
-            <label>Land / lot cost</label>
-            <div class="input-prefix"><span>$</span><input class="finput" type="text" id="lot" value="150,000" oninput="fmtM(this);calc()"></div>
-            <div class="hint">Unionville land median: ~$212K (16.3 ac). Adjust for your specific acreage and location.</div>
-          </div>
-          <div class="field" style="margin-bottom:0">
-            <label>Zoning &amp; density</label>
-            <div class="zone-grid">
-              <button class="z-btn active" onclick="setZone('rs',this)"><div class="z-radio"></div><div class="z-label"><span class="z-code">Rs Zoning</span><span class="z-desc">1 unit</span></div></button>
-              <button class="z-btn" onclick="setZone('r',this)"><div class="z-radio"></div><div class="z-label"><span class="z-code">R Zoning</span><span class="z-desc">2 units</span></div></button>
-              <button class="z-btn" onclick="setZone('mul',this)"><div class="z-radio"></div><div class="z-label"><span class="z-code">Mul Zoning</span><span class="z-desc">Multi-unit</span></div></button>
-              <button class="z-btn sp-btn" onclick="setZone('sp',this)"><div class="z-radio"></div><div class="z-label"><span class="z-code">SP Zoning</span><span class="z-desc">Special purpose</span></div></button>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <div class="field" style="margin-bottom:0">
+              <label>Total land cost</label>
+              <div class="input-prefix"><span>$</span><input class="finput" type="text" id="lot-total" value="300,000" oninput="fmtM(this);calcLots()"></div>
             </div>
-            <div id="sp-notice" style="display:none" class="bubble navy">SP Zoning is subject to city/county approval. Approval is not guaranteed and timelines vary. Do not underwrite a deal dependent on SP approval without consulting a land use attorney.</div>
-            <div id="units-wrap" style="display:none;margin-top:10px;">
-              <div class="field" style="margin-bottom:8px;">
-                <label id="units-lbl">Number of units planned</label>
-                <input class="finput" type="number" id="units" value="2" min="2" max="50" oninput="calc()" style="width:80px;">
+            <div class="field" style="margin-bottom:0">
+              <label>Total acreage</label>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input class="finput" type="number" id="lot-acres" value="25" min="1" max="500" step="0.5" oninput="calcLots()" style="width:100%;">
+                <span style="font-size:12px;color:var(--muted);white-space:nowrap">ac</span>
               </div>
-              <div class="toggle-row">
-                <label class="toggle"><input type="checkbox" id="similar-toggle" checked onchange="calc()"><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
-                <span class="toggle-label-txt">Build similar / identical homes</span>
-              </div>
-              <div class="bubble amber" style="margin-top:8px;">Cost and revenue split equally across all units. Model differently sized units separately.</div>
             </div>
           </div>
+
+          <div class="sl" style="margin-bottom:10px;">
+            <div class="sl-top"><span class="sl-name">Acres per build pad</span><span class="sl-badge" id="acp-badge">2.0 ac</span></div>
+            <input type="range" id="acres-per-pad" min="0.5" max="10" step="0.5" value="2" oninput="calcLots()">
+            <div class="sl-range"><span>0.5 ac</span><span style="color:var(--muted)">Unionville median: 2.29 ac</span><span>10 ac</span></div>
+          </div>
+
+          <!-- LOT BREAKDOWN OUTPUT -->
+          <div id="lot-breakdown" style="background:var(--surface);border-radius:8px;padding:12px 14px;border:1px solid var(--border);">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--red)" id="bd-lots">12</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Buildable lots</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--text)" id="bd-cost-per">$25,000</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Land cost / lot</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--muted)" id="bd-unused">1.0 ac</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Remainder acres</div>
+              </div>
+            </div>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5;" id="bd-note"></div>
+          </div>
+
         </div>
       </div>
 
@@ -516,9 +530,10 @@ var MARKET_MED_PRICE = 524900;
 // ═══════════════════════════════════
 // STATE
 // ═══════════════════════════════════
-var activeZone = 'rs';
 var lastCalc = {};
 var _syncing = false;
+var derivedLots = 12;
+var derivedCostPerLot = 25000;
 
 // ═══════════════════════════════════
 // UTILS
@@ -532,18 +547,33 @@ function marginClass(m){return m>=18?'strong':m>=10?'moderate':m>=0?'thin':'nega
 function marginLabel(m){return m>=18?'Strong (≥18%)':m>=10?'Moderate (10–17%)':m>=0?'Thin (0–9%)':'Negative — deal does not pencil';}
 
 // ═══════════════════════════════════
-// ZONE
+// LOT SUBDIVISION CALCULATOR
 // ═══════════════════════════════════
-function setZone(z,el){
-  document.querySelectorAll('.z-btn').forEach(function(b){b.classList.remove('active');});
-  el.classList.add('active'); activeZone=z;
-  document.getElementById('sp-notice').style.display=(z==='sp')?'block':'none';
-  var show=(z==='r'||z==='mul'||z==='sp');
-  document.getElementById('units-wrap').style.display=show?'block':'none';
-  var ul=document.getElementById('units-lbl'), ui=document.getElementById('units');
-  if(z==='r'){ui.value=2;ui.min=2;ul.textContent='Number of units planned';}
-  if(z==='mul'){ui.min=3;if(parseInt(ui.value)<3)ui.value=3;ul.textContent='Number of units planned';}
-  if(z==='sp'){ui.min=2;ul.textContent='Projected units (pending approval)';}
+function calcLots(){
+  var totalCost = parsM(document.getElementById('lot-total').value);
+  var totalAcres = parseFloat(document.getElementById('lot-acres').value)||25;
+  var acresPerPad = parseFloat(document.getElementById('acres-per-pad').value)||2;
+
+  document.getElementById('acp-badge').textContent = acresPerPad.toFixed(1)+' ac';
+
+  var lots = Math.floor(totalAcres / acresPerPad);
+  if(lots < 1) lots = 1;
+  var remainder = Math.round((totalAcres - (lots * acresPerPad)) * 10) / 10;
+  var costPerLot = lots > 0 ? Math.round(totalCost / lots) : totalCost;
+
+  derivedLots = lots;
+  derivedCostPerLot = costPerLot;
+
+  document.getElementById('bd-lots').textContent = lots;
+  document.getElementById('bd-cost-per').textContent = fmt(costPerLot);
+  document.getElementById('bd-unused').textContent = remainder.toFixed(1)+' ac';
+
+  var totalAcresUsed = lots * acresPerPad;
+  document.getElementById('bd-note').textContent =
+    lots+' build pads × '+acresPerPad.toFixed(1)+' ac = '+totalAcresUsed.toFixed(1)+' ac used. '+
+    (remainder > 0 ? remainder.toFixed(1)+' ac remainder (road access, buffers, or future use). ' : '')+
+    'Land cost of '+fmt(totalCost)+' ÷ '+lots+' lots = '+fmt(costPerLot)+' per pad. This cost per pad flows into the pro forma below.';
+
   calc();
 }
 
@@ -571,16 +601,18 @@ function syncResaleOnSqftChange(){
 }
 
 // ═══════════════════════════════════
-// CALC
+// CALC  (per-pad pro forma)
 // ═══════════════════════════════════
 function calc(){
-  var lot=parsM(document.getElementById('lot').value);
+  // Land cost per pad comes from the subdivision calculator above
+  var lotPU = derivedCostPerLot;
+  var units = derivedLots;
+
   var sqft=parseInt(document.getElementById('sqft').value)||2100;
   var bpsf=parseInt(document.getElementById('bpsf').value)||175;
   var resalePerUnit=parsM(document.getElementById('resale').value);
   var softPerUnit=parsM(document.getElementById('softcosts').value);
   var sellPct=parseFloat(document.getElementById('sell').value)/100;
-  var units=(activeZone==='rs')?1:Math.max(1,parseInt(document.getElementById('units').value)||1);
 
   document.getElementById('sqft-badge').textContent=sqft.toLocaleString()+' sf';
   document.getElementById('bpsf-badge').textContent='$'+bpsf+'/sf';
@@ -588,7 +620,7 @@ function calc(){
   document.getElementById('sqft-bubble').style.display=sqft>3000?'block':'none';
   document.getElementById('bpsf-bubble').style.display=bpsf>250?'block':'none';
 
-  var lotPU=lot/units, buildPU=sqft*bpsf, totalCostPU=lotPU+buildPU+softPerUnit;
+  var buildPU=sqft*bpsf, totalCostPU=lotPU+buildPU+softPerUnit;
   var sellCPU=resalePerUnit*sellPct, profitPU=resalePerUnit-totalCostPU-sellCPU;
   var totalRev=resalePerUnit*units, totalCost=totalCostPU*units;
   var totalSell=sellCPU*units, totalProfit=profitPU*units;
@@ -596,12 +628,15 @@ function calc(){
   var roi=totalCostPU>0?(profitPU/totalCostPU)*100:0;
   var breakEven=totalCostPU+sellCPU;
   var psqftSale=resalePerUnit>0?Math.round(resalePerUnit/sqft):0;
-  var lotPct=totalRev>0?(lot/totalRev)*100:0;
+  var totalLandCost=parsM(document.getElementById('lot-total').value);
+  var lotPct=totalRev>0?(totalLandCost/totalRev)*100:0;
 
-  lastCalc={lot,sqft,bpsf,resalePerUnit,softPerUnit,sellPct,units,activeZone,
+  lastCalc={lotPU,sqft,bpsf,resalePerUnit,softPerUnit,sellPct,units,
     totalRevenue:totalRev,totalCost,totalSellCost:totalSell,totalProfit,profitPerUnit:profitPU,
-    margin,roi,breakEven,lotPerUnit:lotPU,buildPerUnit:buildPU,totalCostPerUnit:totalCostPU,
-    psqftSale,lotPct,sellCostPerUnit:sellCPU};
+    margin,roi,breakEven,buildPerUnit:buildPU,totalCostPerUnit:totalCostPU,
+    psqftSale,lotPct,sellCostPerUnit:sellCPU,totalLandCost,
+    totalAcres:parseFloat(document.getElementById('lot-acres').value)||25,
+    acresPerPad:parseFloat(document.getElementById('acres-per-pad').value)||2};
 
   var mc=marginClass(margin);
   var mp=document.getElementById('margin-pct'); mp.textContent=fmtP(margin); mp.className='margin-pct '+mc;
@@ -615,27 +650,27 @@ function calc(){
     '<div class="delta '+(diff>=0?'above':'below')+'">'+(diff>=0?'+$'+diff:'-$'+Math.abs(diff))+'/sf</div></div>';
 
   document.getElementById('line-items').innerHTML=[
-    {l:'Gross revenue'+(units>1?' ('+units+' units)':''),v:fmt(totalRev),c:''},
+    {l:'Gross revenue ('+units+' homes)',v:fmt(totalRev),c:''},
     {l:'Sales costs',v:'-'+fmt(totalSell),c:'neg'},
     {l:'Total project cost',v:'-'+fmt(totalCost),c:'neg'},
-    {l:'Net profit'+(units>1?' ('+units+' units)':''),v:(totalProfit>=0?'':'-')+fmt(Math.abs(totalProfit)),c:totalProfit>=0?'pos':'neg',net:true}
+    {l:'Net profit ('+units+' homes)',v:(totalProfit>=0?'':'-')+fmt(Math.abs(totalProfit)),c:totalProfit>=0?'pos':'neg',net:true}
   ].map(function(r){return'<div class="li-row'+(r.net?' net':'')+'"><span class="li-label">'+r.l+'</span><span class="li-val '+r.c+'">'+r.v+'</span></div>';}).join('');
 
   document.getElementById('key-metrics').innerHTML=
     '<div><div class="km-label">Return on cost</div><div class="km-val">'+fmtP(roi)+'</div></div>'+
-    '<div><div class="km-label">Break-even / unit</div><div class="km-val">'+fmt(breakEven)+'</div></div>'+
-    (units>1?'<div><div class="km-label">Profit per unit</div><div class="km-val">'+fmt(profitPU)+'</div></div>':
-    '<div><div class="km-label">Selling costs</div><div class="km-val">'+fmt(sellCPU)+'</div></div>')+
-    '<div><div class="km-label">Lot cost / unit</div><div class="km-val">'+fmt(lotPU)+'</div></div>';
+    '<div><div class="km-label">Break-even / home</div><div class="km-val">'+fmt(breakEven)+'</div></div>'+
+    '<div><div class="km-label">Profit per home</div><div class="km-val">'+fmt(profitPU)+'</div></div>'+
+    '<div><div class="km-label">Land cost / pad</div><div class="km-val">'+fmt(lotPU)+'</div></div>';
 
   document.getElementById('lr-pct').textContent=fmtP(lotPct);
   var lf=document.getElementById('lr-fill');
   lf.style.width=Math.min(lotPct,100)+'%';
   lf.style.background=lotPct<=20?'#4ade80':lotPct<=30?'#fbbf24':'#f87171';
   document.getElementById('lr-note').textContent=
-    lotPct<=20?'Within the ≤20% investor rule of thumb.':
+    'Total land cost as % of gross revenue across all '+units+' homes. '+
+    (lotPct<=20?'Within the ≤20% investor rule of thumb.':
     lotPct<=30?'Slightly above the 20% rule — tighter margin for error.':
-    'Above 30% — most investors would want the lot price lower or the exit price higher.';
+    'Above 30% — most investors would want the land price lower or exit price higher.');
 }
 
 // ═══════════════════════════════════
@@ -684,11 +719,10 @@ function calc(){
 // PDF
 // ═══════════════════════════════════
 function downloadPDF(){
-  var c=lastCalc; if(!c.sqft){calc();c=lastCalc;}
+  var c=lastCalc; if(!c.sqft){calcLots();c=lastCalc;}
   var mc=marginClass(c.margin);
   var mcColor=mc==='strong'?'#16a34a':mc==='moderate'?'#d97706':'#dc2626';
   var dateStr=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-  var zoneLabel={'rs':'Rs Zoning (1 unit)','r':'R Zoning (2 units)','mul':'Mul Zoning (multi-unit)','sp':'SP Zoning (special purpose)'}[c.activeZone]||c.activeZone;
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Deal Summary · Unionville</title>'+
     '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#fff;color:#111;padding:32px;max-width:680px;margin:0 auto;}'+
     '.hdr{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:3px solid #C0392B;padding-bottom:14px;margin-bottom:20px;}'+
@@ -708,20 +742,25 @@ function downloadPDF(){
     '<div class="hdr"><div><div class="hdr-title">Deal Summary · Unionville, TN</div>'+
     '<div class="hdr-sub">Smith Portfolio · Jason Kaczmarski · RE/MAX 1st Choice<br>(615) 587-7888 · jasonk@realtracs.com<br>Generated '+dateStr+'</div></div>'+
     '<div class="hdr-badge">Unionville, TN</div></div>'+
-    '<div class="margin-big"><div class="margin-num">'+fmtP(c.margin)+'</div><div class="margin-grade">'+marginLabel(c.margin)+'</div><div class="margin-lbl">Estimated profit margin</div></div>'+
-    '<div class="sec"><div class="sec-title">Project inputs</div>'+
+    '<div class="margin-big"><div class="margin-num">'+fmtP(c.margin)+'</div><div class="margin-grade">'+marginLabel(c.margin)+'</div><div class="margin-lbl">Estimated profit margin · per home</div></div>'+
+    '<div class="sec"><div class="sec-title">Land &amp; subdivision inputs</div>'+
     '<div class="row"><span>Market</span><span>Unionville, TN</span></div>'+
-    '<div class="row"><span>Zoning</span><span>'+zoneLabel+(c.units>1?' · '+c.units+' units':'')+'</span></div>'+
-    '<div class="row"><span>Lot / land cost</span><span>'+fmt(c.lot)+'</span></div>'+
-    '<div class="row"><span>Square footage per unit</span><span>'+c.sqft.toLocaleString()+' sqft</span></div>'+
+    '<div class="row"><span>Total land cost</span><span>'+fmt(c.totalLandCost)+'</span></div>'+
+    '<div class="row"><span>Total acreage</span><span>'+c.totalAcres+' ac</span></div>'+
+    '<div class="row"><span>Acres per build pad</span><span>'+c.acresPerPad.toFixed(1)+' ac</span></div>'+
+    '<div class="row"><span>Buildable lots</span><span>'+c.units+' homes</span></div>'+
+    '<div class="row"><span>Land cost per pad</span><span>'+fmt(c.lotPU)+'</span></div>'+
+    '</div>'+
+    '<div class="sec"><div class="sec-title">Build &amp; resale inputs · per home</div>'+
+    '<div class="row"><span>Square footage per home</span><span>'+c.sqft.toLocaleString()+' sqft</span></div>'+
     '<div class="row"><span>Build cost per sqft</span><span>$'+c.bpsf+'/sf</span></div>'+
-    '<div class="row"><span>Soft costs per unit</span><span>'+fmt(c.softPerUnit)+'</span></div>'+
-    '<div class="row"><span>Projected sale price per unit</span><span>'+fmt(c.resalePerUnit)+'</span></div>'+
+    '<div class="row"><span>Soft costs per home</span><span>'+fmt(c.softPerUnit)+'</span></div>'+
+    '<div class="row"><span>Projected sale price per home</span><span>'+fmt(c.resalePerUnit)+'</span></div>'+
     '<div class="row"><span>Sale price per sqft</span><span>$'+c.psqftSale+'/sf</span></div>'+
     '<div class="row"><span>Market median $/sqft</span><span>$252/sf (Unionville 2025)</span></div>'+
     '<div class="row"><span>Selling cost</span><span>'+fmtP(c.sellPct*100)+'</span></div>'+
     '</div>'+
-    '<div class="sec"><div class="sec-title">Financial summary'+(c.units>1?' · '+c.units+' units':'')+' </div>'+
+    '<div class="sec"><div class="sec-title">Financial summary · '+c.units+' homes</div>'+
     '<div class="row"><span>Gross revenue</span><span>'+fmt(c.totalRevenue)+'</span></div>'+
     '<div class="row"><span>Sales costs</span><span class="neg">−'+fmt(c.totalSellCost)+'</span></div>'+
     '<div class="row"><span>Total project cost</span><span class="neg">−'+fmt(c.totalCost)+'</span></div>'+
@@ -729,9 +768,9 @@ function downloadPDF(){
     '</div>'+
     '<div class="sec"><div class="sec-title">Key metrics</div><div class="grid2">'+
     '<div class="metric"><div class="metric-val">'+fmtP(c.roi)+'</div><div class="metric-lbl">Return on cost</div></div>'+
-    '<div class="metric"><div class="metric-val">'+fmt(c.breakEven)+'</div><div class="metric-lbl">Break-even price / unit</div></div>'+
-    '<div class="metric"><div class="metric-val">$'+c.psqftSale+'/sf</div><div class="metric-lbl">Sale price per sqft</div></div>'+
-    '<div class="metric"><div class="metric-val">'+fmtP(c.lotPct)+'</div><div class="metric-lbl">Lot cost as % of exit</div></div>'+
+    '<div class="metric"><div class="metric-val">'+fmt(c.breakEven)+'</div><div class="metric-lbl">Break-even price / home</div></div>'+
+    '<div class="metric"><div class="metric-val">'+fmt(c.profitPerUnit)+'</div><div class="metric-lbl">Profit per home</div></div>'+
+    '<div class="metric"><div class="metric-val">'+fmtP(c.lotPct)+'</div><div class="metric-lbl">Land cost as % of gross revenue</div></div>'+
     '</div></div>'+
     '<div class="foot">All figures are estimates based on inputs provided — not guaranteed. This report does not constitute financial, legal, tax, or investment advice.<br>Market data: Realtracs MLS · Unionville, TN new construction · Information believed accurate but not guaranteed. © 2026 Realtracs, Inc.<br><br>Jason Kaczmarski · RE/MAX 1st Choice · (615) 587-7888 · jasonk@realtracs.com</div>'+
     '</body></html>';
@@ -742,7 +781,7 @@ function downloadPDF(){
 // ═══════════════════════════════════
 // BOOT
 // ═══════════════════════════════════
-calc();
+calcLots();
 </script>
 </body>
 </html>
